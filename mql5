@@ -1,0 +1,105 @@
+mql5
+//+------------------------------------------------------------------+
+//|                                           AW Advanced Scalping EA MT5 |
+//|                                                forexroboteasy.com |
+//|                                      Developed by Forex Robot Easy Team |
+//+------------------------------------------------------------------+
+
+//--- include necessary libraries and define constants
+#include <Trade\Trade.mqh>
+
+//--- input parameters
+input double LotSize = 0.01; // initial lot size
+input int OscillatorPeriod = 14; // period for the self-developed oscillator
+input double RecoveryFactor = 2.0; // recovery factor for the overlap recovery algorithm
+input double StepSize = 10.0; // step size for adjusting orders
+input bool AllowManualOrders = true; // option to allow manual orders
+
+//--- global variables
+CTrade trade; // trade object for executing orders
+double oscillatorBuffer[]; // buffer for storing oscillator values
+int lastOrderType; // variable to store the type of the last order
+
+//+------------------------------------------------------------------+
+//| Custom initialization function                                    |
+//+------------------------------------------------------------------+
+int OnInit()
+{
+   //--- initialize oscillator buffer
+   ArrayResize(oscillatorBuffer, Bars);
+
+   //--- calculate oscillator values
+   for(int i = Bars - 1; i >= 0; i--)
+   {
+      oscillatorBuffer[i] = iCustom(Symbol(), 0, 'Oscillator', OscillatorPeriod, i);
+   }
+
+   return(INIT_SUCCEEDED);
+}
+
+//+------------------------------------------------------------------+
+//| Custom start function                                             |
+//+------------------------------------------------------------------+
+void OnStart()
+{
+   //--- calculate lot size
+   double lotSize = CalculateLotSize();
+
+   //--- check for potential losses and initiate overlap recovery
+   if(lastOrderType != 0 && OrderProfit() < 0)
+   {
+      double recoveryLotSize = NormalizeDouble(OrderLots() * RecoveryFactor, 2);
+      trade.SellStop(recoveryLotSize, Bid - StepSize, 0, 0, 0);
+      trade.BuyStop(recoveryLotSize, Ask + StepSize, 0, 0, 0);
+   }
+   
+   //--- check for price reversals and initiate trading
+   if(oscillatorBuffer[0] > 0 && oscillatorBuffer[1] < 0)
+   {
+      if(lastOrderType == 0)
+      {
+         trade.Buy(lotSize, 0, 0, 0, 0);
+         lastOrderType = OP_BUY;
+      }
+      else if(lastOrderType == OP_SELL)
+      {
+         trade.Close(0, OrderLots());
+         trade.Buy(lotSize, 0, 0, 0, 0);
+         lastOrderType = OP_BUY;
+      }
+   }
+   else if(oscillatorBuffer[0] < 0 && oscillatorBuffer[1] > 0)
+   {
+      if(lastOrderType == 0)
+      {
+         trade.Sell(lotSize, 0, 0, 0, 0);
+         lastOrderType = OP_SELL;
+      }
+      else if(lastOrderType == OP_BUY)
+      {
+         trade.Close(0, OrderLots());
+         trade.Sell(lotSize, 0, 0, 0, 0);
+         lastOrderType = OP_SELL;
+      }
+   }
+}
+
+//+------------------------------------------------------------------+
+//| Custom function to calculate lot size                             |
+//+------------------------------------------------------------------+
+double CalculateLotSize()
+{
+   double lotSize = LotSize;
+
+   //--- check for market trend against the trader
+   if(lastOrderType == OP_BUY && oscillatorBuffer[0] < 0)
+   {
+      lotSize = NormalizeDouble(lotSize * RecoveryFactor, 2);
+   }
+   else if(lastOrderType == OP_SELL && oscillatorBuffer[0] > 0)
+   {
+      lotSize = NormalizeDouble(lotSize * RecoveryFactor, 2);
+   }
+
+   return lotSize;
+}
